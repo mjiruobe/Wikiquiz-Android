@@ -7,6 +7,11 @@ For now this project only works for the german language. For other languages you
 
 This Repository only contains the Flutter frontend. For the backend visit https://github.com/mjiruobe/Wikiquiz
 
+
+https://github.com/mjiruobe/Wikiquiz-Android/assets/68758914/818c9b6e-9589-4d92-b9b5-3f0d3c01d20a
+
+
+
 ## Usage
 
 - Run the backend server (see https://github.com/mjiruobe/Wikiquiz)
