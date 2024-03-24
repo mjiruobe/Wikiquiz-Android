@@ -22,9 +22,8 @@ class _QuizSetDialogState extends ConsumerState<QuizSetDialog> {
 
   final nameController = TextEditingController();
   final descriptionController = TextEditingController();
-  final articleController =
-      StateProvider<TextEditingController?>((ref) => null);
-  final addArticleEnabledProvider = StateProvider((ref) => false);
+  TextEditingController? articleController;
+  ScrollController scrollController = ScrollController();
 
   @override
   void initState() {
@@ -89,7 +88,9 @@ class _QuizSetDialogState extends ConsumerState<QuizSetDialog> {
                                 MaterialStateProperty.all<bool>(true),
                           )),
                           child: Scrollbar(
+                            controller: scrollController,
                             child: SingleChildScrollView(
+                              controller: scrollController,
                               child: Wrap(
                                   children: List.generate(
                                       articles.length,
@@ -123,50 +124,55 @@ class _QuizSetDialogState extends ConsumerState<QuizSetDialog> {
                                 flex: 2,
                                 child: Autocomplete<WikiArticle>(
                                   optionsBuilder: (textEditingValue) =>
-                                      getWikpediaSuggestion(
-                                          textEditingValue.text),
+                                      getWikipediaSuggestions(
+                                              textEditingValue.text)
+                                          .onError((error, stackTrace) =>
+                                              Future.value([])),
                                   displayStringForOption: (suggestion) =>
                                       suggestion.title,
                                   onSelected: (article) {
                                     ref.read(articlesProvider.notifier).state =
                                         ref.read(articlesProvider) + [article];
-                                    ref
-                                        .read(articleController.notifier)
-                                        .state
-                                        ?.text = "";
+                                    articleController?.clear();
                                   },
                                   fieldViewBuilder: (context,
                                       textEditingController,
                                       focusNode,
                                       onFieldSubmitted) {
-                                    Future(() {
-                                      ref
-                                          .read(articleController.notifier)
-                                          .state = textEditingController;
-                                    });
+                                    articleController = textEditingController;
                                     return TextField(
                                       controller: textEditingController,
                                       focusNode: focusNode,
                                       onChanged: (value) {},
                                       onSubmitted: (_) async {
-                                        final articleText =
-                                            textEditingController.text;
-                                        final suggestions =
-                                            await getWikpediaSuggestion(
-                                                articleText);
-                                        if (suggestions.any((suggestion) =>
-                                            suggestion.title == articleText)) {
-                                          ref
-                                              .read(articlesProvider.notifier)
-                                              .state = ref
-                                                  .read(articlesProvider) +
-                                              [
-                                                suggestions.firstWhere(
-                                                    (article) =>
-                                                        article.title ==
-                                                        articleText)
-                                              ];
-                                          textEditingController.clear();
+                                        for (int retries = 0;
+                                            retries < 2;
+                                            retries++) {
+                                          try {
+                                            final articleText =
+                                                textEditingController.text;
+                                            final suggestions =
+                                                await getWikipediaSuggestions(
+                                                    articleText);
+                                            if (suggestions.any((suggestion) =>
+                                                suggestion.title ==
+                                                articleText)) {
+                                              ref
+                                                  .read(
+                                                      articlesProvider.notifier)
+                                                  .state = ref
+                                                      .read(articlesProvider) +
+                                                  [
+                                                    suggestions.firstWhere(
+                                                        (article) =>
+                                                            article.title ==
+                                                            articleText)
+                                                  ];
+                                              textEditingController.clear();
+                                            }
+                                          } catch (e) {
+                                            continue;
+                                          }
                                         }
                                       },
                                     );
@@ -188,59 +194,71 @@ class _QuizSetDialogState extends ConsumerState<QuizSetDialog> {
                       icon: const Icon(Icons.cancel, color: Colors.red)),
                   IconButton(
                       onPressed: () async {
-                        List<WikiArticle> articles = ref.read(articlesProvider);
-                        for (int i = 0; i < articles.length; i++) {
-                          if (articles[i].mainImg != null &&
-                              articles[i].url != null) {
+                        for (int retries = 0; retries < 2; retries++) {
+                          try {
+                            List<WikiArticle> articles =
+                                ref.read(articlesProvider);
+                            for (int i = 0; i < articles.length; i++) {
+                              if (articles[i].mainImg != null &&
+                                  articles[i].url != null) {
+                                continue;
+                              }
+                              var pageId = articles[i].pageId;
+                              var requestURL =
+                                  "https://de.wikipedia.org/w/api.php?action=query&prop=info|pageimages&pageids=" +
+                                      pageId.toString() +
+                                      "&inprop=url&pithumbsize=1000&format=json";
+                              print(requestURL);
+                              var response = json.decode(
+                                  (await http.get(Uri.parse(requestURL))).body);
+                              articles[i] = WikiArticle(
+                                  title: articles[i].title,
+                                  pageId: articles[i].pageId,
+                                  url: response['query']['pages']
+                                      [pageId.toString()]['fullurl'],
+                                  mainImg: response['query']['pages']
+                                          ?[pageId.toString()]?['thumbnail']
+                                      ?['source']);
+                            }
+                            ref.read(articlesProvider.notifier).state =
+                                articles;
+                            QuizSet quizSet = QuizSet(
+                                name: nameController.text,
+                                description: descriptionController.text,
+                                articles: articles,
+                                fullyLoaded: false,
+                                lastSynced: null);
+                            if (widget.editIndex != null) {
+                              ref.read(quizSetsProvider.notifier).state = ref
+                                      .read(quizSetsProvider)
+                                      .getRange(0, widget.editIndex!)
+                                      .toList() +
+                                  [quizSet] +
+                                  ref
+                                      .read(quizSetsProvider)
+                                      .getRange(widget.editIndex! + 1,
+                                          ref.read(quizSetsProvider).length)
+                                      .toList();
+                            } else {
+                              ref.read(quizSetsProvider.notifier).state =
+                                  ref.read(quizSetsProvider) + [quizSet];
+                            }
+                            QuizSet.saveQuizSets(ref);
+
+                            Navigator.of(context).pop();
+                            break;
+                          } catch (e) {
+                            print(e.toString());
                             continue;
                           }
-                          var pageId = articles[i].pageId;
-                          var requestURL =
-                              "https://de.wikipedia.org/w/api.php?action=query&prop=info|pageimages&pageids=" +
-                                  pageId.toString() +
-                                  "&inprop=url&pithumbsize=1000&format=json";
-                          print(requestURL);
-                          var response = json.decode(
-                              (await http.get(Uri.parse(requestURL))).body);
-                          articles[i] = WikiArticle(
-                              title: articles[i].title,
-                              pageId: articles[i].pageId,
-                              url: response['query']['pages'][pageId.toString()]
-                                  ['fullurl'],
-                              mainImg: response['query']['pages']
-                                  [pageId.toString()]['thumbnail']['source']);
                         }
-                        ref.read(articlesProvider.notifier).state = articles;
-                        QuizSet quizSet = QuizSet(
-                            name: nameController.text,
-                            description: descriptionController.text,
-                            articles: articles,
-                            fullyLoaded: false,
-                            lastSynced: null);
-                        if (widget.editIndex != null) {
-                          ref.read(quizSetsProvider.notifier).state = ref
-                                  .read(quizSetsProvider)
-                                  .getRange(0, widget.editIndex!)
-                                  .toList() +
-                              [quizSet] +
-                              ref
-                                  .read(quizSetsProvider)
-                                  .getRange(widget.editIndex! + 1,
-                                      ref.read(quizSetsProvider).length)
-                                  .toList();
-                        } else {
-                          ref.read(quizSetsProvider.notifier).state =
-                              ref.read(quizSetsProvider) + [quizSet];
-                        }
-                        QuizSet.saveQuizSets(ref);
-                        Navigator.of(context).pop();
                       },
                       icon: const Icon(Icons.check_circle, color: Colors.green))
                 ]);
     });
   }
 
-  Future<List<WikiArticle>> getWikpediaSuggestion(String text) async {
+  Future<List<WikiArticle>> getWikipediaSuggestions(String text) async {
     if (text != "") {
       var requestURL =
           "https://de.wikipedia.org/w/api.php?action=query&list=search&prop=info&utf8=&format=json&origin=*&srlimit=20&srsearch=" +

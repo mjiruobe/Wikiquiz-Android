@@ -51,6 +51,7 @@ dependencies:
   multi_image_layout: ^0.1.1
   image_card: ^0.0.4
   flutter_secure: ^1.0.1
+  loading_indicator: ^3.1.1
 
 dev_dependencies:
   flutter_test:

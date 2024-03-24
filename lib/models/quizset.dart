@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:json_annotation/json_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -37,7 +38,8 @@ class QuizSet {
       required this.fullyLoaded,
       required this.lastSynced});
 
-  Future<void> loadQuizset() async {
+  Future<void> loadQuizset(
+      ref, StateProvider<(int, int)> loadNotifierProvider) async {
     var articleList = json.encode(articles.map((e) => e.url).toList());
 
     if (!fullyLoaded) {
@@ -70,11 +72,22 @@ class QuizSet {
 
         var resp = json.decode(await response.stream.bytesToString());
         print(resp);
-        fullyLoaded = (resp['data'] as List<dynamic>)
-            .every((element) => element['state'] == "finish");
+        final contentToLoad = (resp['data'] as List<dynamic>);
+        final loadedContent = contentToLoad
+            .where((element) => element['state'] == "finish")
+            .length;
+        ref.read(loadNotifierProvider.notifier).state =
+            (loadedContent, contentToLoad.length + 1);
+
+        fullyLoaded = loadedContent == contentToLoad.length;
       }();
       await Future.delayed(Duration(seconds: 2));
     }
+
+    ref.read(loadNotifierProvider.notifier).state = (
+      ref.read(loadNotifierProvider).$2 - 1,
+      ref.read(loadNotifierProvider).$2
+    );
 
     if (questions.isEmpty) {
       var headers = {
@@ -102,6 +115,8 @@ class QuizSet {
         print(response.reasonPhrase);
       }
     }
+    ref.read(loadNotifierProvider.notifier).state =
+        (ref.read(loadNotifierProvider).$2, ref.read(loadNotifierProvider).$2);
   }
 
   static Future<void> saveQuizSets(ref) async {
